@@ -21,6 +21,13 @@ class Store:
         self._events: list[dict[str, Any]] = []
         # 模块快照备份：用于检查点和恢复
         self._snapshots: dict[str, list[dict[str, Any]]] = {}
+        # 质量检查记录：每次质量检查落一条，是治理报告质量指标的证据明细
+        self._quality_checks: list[dict[str, Any]] = []
+        # 复核包导出尝试：每次导出记录版本与内容摘要，供中断重试后核对复查范围
+        self._export_attempts: list[dict[str, Any]] = []
+        # 复查轮次与复查记录：质量监控读取复核包后生成
+        self._review_runs: list[dict[str, Any]] = []
+        self._review_records: list[dict[str, Any]] = []
 
     # ---- 基础读写 ----
 
@@ -85,6 +92,61 @@ class Store:
             e for e in self._events
             if e["source_module"] == source and e["target_module"] == target
         ]
+
+    # ---- 质量检查记录（复核包证据明细） ----
+
+    def record_quality_check(self, result: dict[str, Any]) -> dict[str, Any]:
+        """落一条质量检查记录，分配全局检查序号。"""
+        record = dict(result)
+        record["check_id"] = len(self._quality_checks) + 1
+        self._quality_checks.append(record)
+        return record
+
+    def quality_checks(self) -> list[dict[str, Any]]:
+        """全部质量检查记录，按检查序号升序。"""
+        return list(self._quality_checks)
+
+    # ---- 复核包导出尝试 ----
+
+    def record_export_attempt(self, attempt: dict[str, Any]) -> dict[str, Any]:
+        """记录一次复核包导出尝试（含版本与内容摘要）。"""
+        entry = dict(attempt)
+        entry["attempt_id"] = len(self._export_attempts) + 1
+        entry["exported_at"] = datetime.datetime.now().isoformat()
+        self._export_attempts.append(entry)
+        return entry
+
+    def export_attempts(self, report_id: int) -> list[dict[str, Any]]:
+        """查询指定治理报告的复核包导出尝试记录。"""
+        return [a for a in self._export_attempts if a.get("report_id") == report_id]
+
+    # ---- 复查轮次与复查记录 ----
+
+    def record_review_run(self, run: dict[str, Any]) -> dict[str, Any]:
+        """登记一轮复查（质量监控读取复核包的结果汇总）。"""
+        entry = dict(run)
+        entry["review_run_id"] = len(self._review_runs) + 1
+        self._review_runs.append(entry)
+        return entry
+
+    def review_runs(self) -> list[dict[str, Any]]:
+        return list(self._review_runs)
+
+    def add_review_records(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """追加一轮复查生成的复查记录，分配全局复查序号。"""
+        saved = []
+        for record in records:
+            entry = dict(record)
+            entry["review_id"] = len(self._review_records) + 1
+            self._review_records.append(entry)
+            saved.append(entry)
+        return saved
+
+    def review_records(self, review_run_id: int | None = None) -> list[dict[str, Any]]:
+        """查询复查记录，可按复查轮次过滤。"""
+        if review_run_id is None:
+            return list(self._review_records)
+        return [r for r in self._review_records if r.get("review_run_id") == review_run_id]
 
     # ---- 快照与检查点 ----
 
